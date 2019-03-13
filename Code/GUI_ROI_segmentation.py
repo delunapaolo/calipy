@@ -1,15 +1,16 @@
 # Add pyqtgraph folder to system path
 import os, sys
 script_path = os.path.realpath(__file__)
-pyqtgraph_path = os.path.join(os.path.dirname(script_path), 'GUI_ROI_segmentation', '3rd_party', 'pyqtgraph')
+pyqtgraph_path = os.path.join(os.path.dirname(script_path), 'GUI_ROI_segmentation', 'third_party')
 sys.path.insert(0, pyqtgraph_path)
 
 # Continue with imports --------------------------------------------------------
 # System packages
 from shutil import copyfile
 import warnings
+import warnings
 with warnings.catch_warnings():
-    warnings.simplefilter('ignore', FutureWarning)
+    warnings.simplefilter('ignore')
     import h5py
 from functools import partial
 
@@ -43,9 +44,13 @@ class Calcium_imaging_data_explorer(object):
         # Make numpy ignore RuntimeWarnings
         warnings.simplefilter('ignore', category=RuntimeWarning)
 
-        # Store pointers to parameters
+        # Store user inputs
         self.PARAMETERS = PARAMETERS
         self.app = app
+        # Make sure that some variables are iterables
+        if not isinstance(self.PARAMETERS['sessions_last_frame'], (np.ndarray, list)):
+            self.PARAMETERS['sessions_last_frame'] = np.array([self.PARAMETERS['sessions_last_frame']], dtype=int)
+
         # Check whether signals are evoked by stimuli
         self.is_stimulus_evoked = bool(self.PARAMETERS['stimulus_evoked'])
         self.n_conditions = len(self.PARAMETERS['condition_names'])
@@ -59,20 +64,28 @@ class Calcium_imaging_data_explorer(object):
     def initialize_GUI(self):
         self.stimulus_profile = None
         # Get average frames
-        self.data_average = dict()
+        data_average_types = ['mean', 'median', 'max', 'standard_deviation', 'correlation']
+        self.data_average = {key: list() for key in data_average_types}
         with h5py.File(self.PARAMETERS['filename_projections'], 'r', libver='latest') as file_in:
             projections = file_in['PROJECTIONS']
-            average_types = projections.keys()
-            for avg_typ in average_types:
-                self.data_average[avg_typ] = projections[avg_typ][:]
+            self.session_names = list(projections.keys())
+            for session_name in self.session_names:
+                average_types = list(projections[session_name].keys())
+                for avg_typ in average_types:
+                    self.data_average[avg_typ].append(projections[session_name][avg_typ][:])
+        for avg_typ in data_average_types:
+            self.data_average[avg_typ] = np.concatenate(self.data_average[avg_typ], axis=0)
         # Convert index of frames from string to numerical
         self.frames_idx = self.PARAMETERS['frames_idx'].astype(np.int64)
+        # Sort frames and trials
+        order = np.argsort(self.frames_idx, axis=0)[:, 0]
+        self.frames_idx = self.frames_idx[order, :]
         # Create array of indices
         self.frames_idx_array = np.zeros((np.max(self.frames_idx), ), dtype=np.int64)
         for itrial in range(self.frames_idx.shape[0]):
             self.frames_idx_array[self.frames_idx[itrial, 0]-1:self.frames_idx[itrial, 1]] = itrial
         # Get info on sessions
-        sessions_last_frame = np.atleast_2d(self.PARAMETERS['sessions_last_frame']).transpose()
+        sessions_last_frame = np.sort(np.atleast_2d(self.PARAMETERS['sessions_last_frame']).transpose(), axis=0)
         sessions_last_frame = np.hstack((np.vstack(([0], sessions_last_frame[:-1]+1)), sessions_last_frame))
         self.sessions_idx = np.zeros((self.n_conditions, ), dtype=int)
         for idx in range(sessions_last_frame.shape[0]):
@@ -549,7 +562,7 @@ class Calcium_imaging_data_explorer(object):
         frames = self.data_average['mean'].copy()
         # Apply transformations
         n_frames = len(self.current_average_frame)
-        for iframe in xrange(n_frames):
+        for iframe in range(n_frames):
             T = self.TRANSFORMATION_IDX[self.TRANSFORMATION_IDX[:, 0] == self.current_average_frame[iframe], 1][0]
             if len(T) > 0:
                 # Apply transformations to current frame one after the other
@@ -656,7 +669,9 @@ class Calcium_imaging_data_explorer(object):
 
         # Reset tables
         self.ROI_TABLE.drop(self.ROI_TABLE.index, inplace=True)
+        self.ROI_TABLE.reset_index(drop=True, inplace=True)
         self.TRANSFORMATION_MATRICES.drop(self.TRANSFORMATION_MATRICES.index, inplace=True)
+        self.TRANSFORMATION_MATRICES.reset_index(drop=True, inplace=True)
 
         # Load file
         file_content = matlab_file.load(self.PARAMETERS['filename_output'])
@@ -946,7 +961,7 @@ class Calcium_imaging_data_explorer(object):
 
         # Apply transformations
         n_frames = len(self.current_average_frame)
-        for iframe in xrange(n_frames):
+        for iframe in range(n_frames):
             T = self.TRANSFORMATION_IDX[self.TRANSFORMATION_IDX[:, 0] == self.current_average_frame[iframe], 1][0]
             if len(T) > 0:
                 # Apply transformations to current frame one after the other
@@ -1035,7 +1050,7 @@ class Calcium_imaging_data_explorer(object):
         [self.FOV_borders[1][ii].setPen(border_pen) for ii in range(4)]
         # Change tick color in timeline
         items = self.frame_image_view.timeLine.scene().items()
-        item = [ii for ii in items if isinstance(ii, pg.PlotItem)][0]
+        item = [ii for ii in items if ii.__class__.__name__ == 'PlotItem'][0]
         item.axes['bottom']['item'].setPen(foreground_color)
 
         # Bottom panels
@@ -1120,7 +1135,7 @@ class Calcium_imaging_data_explorer(object):
         try:
             self.average_histogram.item.sigLevelsChanged.disconnect()
             frame_hist.sigLevelsChanged.disconnect()
-        except TypeError, e:
+        except TypeError as e:
             # An error occurs when no callback was previously connected. The error message contains 'disconnect() failed'
             if 'disconnect() failed' not in str(e):
                 raise  # Re-raise error
@@ -1610,14 +1625,24 @@ class Calcium_imaging_data_explorer(object):
             self.color_ROI_view_border(color=None)
             self.selected_ROI = None
         # Delete contour from frame plot
-        self.frame_image_view.removeItem(self.ROI_TABLE.at[table_row, 'handle_ROI_contour'])
+        try:
+            self.frame_image_view.removeItem(self.ROI_TABLE.at[table_row, 'handle_ROI_contour'])
+        except:
+            print('Error on line 1620')
         # Delete trace
-        self.trace_viewbox.removeItem(self.ROI_TABLE.loc[table_row, 'handle_trace'])
+        try:
+            self.trace_viewbox.removeItem(self.ROI_TABLE.loc[table_row, 'handle_trace'])
+        except:
+            print('Error on line 1625')
 
         # Delete handle from average view
-        self.average_image_viewbox.removeItem(roi)
+        try:
+            self.average_image_viewbox.removeItem(roi)
+        except:
+            print('Error on line 1631')
         # Remove row from table
         self.ROI_TABLE.drop(table_row, inplace=True)
+        self.ROI_TABLE.reset_index(drop=True, inplace=True)
         # Toggle the button that allows the user to translate the entire field of view
         n_ROIs = self.ROI_TABLE.shape[0]
         self.buttons.translation_ROI.setEnabled(n_ROIs > 0)
@@ -1952,7 +1977,7 @@ class Calcium_imaging_data_explorer(object):
 
     def update_table_condition_names(self):
         # Get indices of modified frames
-        for frame_idx in xrange(self.n_conditions):
+        for frame_idx in range(self.n_conditions):
             # Get name of condition
             cond_name = self.PARAMETERS['condition_names'][frame_idx]
             # Get number of modifications on this frame
@@ -2092,7 +2117,7 @@ class Calcium_imaging_data_explorer(object):
             self.updating_timeline_position = False
 
     def callback_reset_zoom(self, where):
-        if not hasattr(where, '__iter__'):
+        if isinstance(where, str):
             where = [where]
         if len(where) == 1 and where[0] == 'all':
             where = ['average','frame','histograms','ROI','trace']
@@ -2291,7 +2316,7 @@ if __name__ == '__main__':
     # Get user inputs
     if len(sys.argv) <= 1:
         # pass
-        params_filename = ''
+        params_filename = r'D:\_MATLAB_2PI\FK_13b_params.mat'
         do_only_conversion = False
     else:
         params_filename = sys.argv[1]
@@ -2312,7 +2337,7 @@ if __name__ == '__main__':
     # Run GUI only if user requested so
     if not do_only_conversion:
         # Make sure some fields are iterables
-        if not hasattr(PARAMETERS['sessions_last_frame'], '__iter__'):
+        if isinstance(PARAMETERS['sessions_last_frame'], str):
             PARAMETERS['sessions_last_frame'] = np.array([PARAMETERS['sessions_last_frame']], dtype=np.int64)
 
         # Initialize Qt-event loop

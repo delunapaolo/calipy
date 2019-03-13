@@ -3,9 +3,11 @@ import sys, os, h5py
 import gc as memory_garbage_collector
 import numpy as np
 
+
 def log(message):
     sys.stdout.write(message + '\n')
     sys.stdout.flush()
+
 
 def prepare_data_for_GUI(PARAMETERS):
     n_frames_per_chunk = 1000

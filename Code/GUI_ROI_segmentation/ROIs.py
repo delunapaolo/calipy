@@ -7,9 +7,9 @@ import numpy as np
 
 # pyqtgraph and graphical packages
 from PyQt5 import QtCore, QtGui, QtWidgets
-import pyqtgraph as pg
-from pyqtgraph import GraphicsObject, Point, SRTTransform, UIGraphicsItem
-import pyqtgraph.functions as fn
+from GUI_ROI_segmentation.third_party import pyqtgraph as pg
+from GUI_ROI_segmentation.third_party.pyqtgraph import GraphicsObject, Point, SRTTransform, UIGraphicsItem
+from GUI_ROI_segmentation.third_party.pyqtgraph import functions as fn
 
 # Local repository
 from GUI_ROI_segmentation.general_configs import default as GUI_default

@@ -1,6 +1,6 @@
 # Graphical packages
 from PyQt5 import QtGui
-import pyqtgraph as pg
+from GUI_ROI_segmentation.third_party import pyqtgraph as pg
 
 # Local repository
 from GUI_ROI_segmentation.icons import histogram_locked, histogram_unlocked, trace_locked, trace_unlocked, colormap, view_unlocked, view_locked, magnifying_glass, bucket, move, polygon
@@ -82,7 +82,7 @@ default['icon_background']['no_go'] = (1., .39, .28)
 
 # Make brush for selection regions
 default['region_colors_dark'] = pg.mkBrush(color=(255, 99, 71))
-default['region_colors_light'] = pg.mkBrush(color=(128, 128, 128))
+default['region_colors_light'] = pg.mkBrush(color=tuple([int(255 * .9)] * 3))
 # Make pen for stimulus profile, if any
 default['stimulus_profile_pen'] = [pg.mkPen((255, 255, 255)), pg.mkPen((0, 0, 0))]
 

@@ -5,7 +5,7 @@ import collections
 
 # Graphical packages
 from PyQt5 import QtCore, QtGui, QtWidgets
-import pyqtgraph as pg
+from GUI_ROI_segmentation.third_party import pyqtgraph as pg
 import cv2
 
 # Numerical packages
@@ -147,7 +147,7 @@ def default_colors(normalize_01=True):
     colors = np.array(colors, dtype=int)
     if normalize_01:
         colors /= 255.
-    colors = zip(*colors.transpose())
+    colors = list(zip(*colors.transpose()))
 
     return colors
 
@@ -272,7 +272,7 @@ def MessageBox(message, title='', parent=None, box_type='question', button_Yes='
     # Add other buttons
     additional_QButtons = list()
     if additional_buttons is not None:
-        if not hasattr(additional_buttons, '__iter__'):
+        if isinstance(additional_buttons, str):
             additional_buttons = [additional_buttons]
         for btn in additional_buttons:
             additional_QButtons.append(msgBox.addButton(btn, QtWidgets.QMessageBox.YesRole))
@@ -457,7 +457,7 @@ def initialize_field(obj, field_name, value_type="class", initial_value=None, sh
             self.__dict__ = self
 
     # Check whether the user inputted a list of fields to fill in
-    if not hasattr(field_name, "__iter__"):
+    if isinstance(field_name, str):
         field_name = [field_name]
 
     for f in field_name:
