@@ -7,12 +7,12 @@ import numpy as np
 
 # pyqtgraph and graphical packages
 from PyQt5 import QtCore, QtGui, QtWidgets
-from GUI_ROI_segmentation.third_party import pyqtgraph as pg
-from GUI_ROI_segmentation.third_party.pyqtgraph import GraphicsObject, Point, SRTTransform, UIGraphicsItem
-from GUI_ROI_segmentation.third_party.pyqtgraph import functions as fn
+from third_party import pyqtgraph as pg
+from third_party.pyqtgraph import GraphicsObject, Point, SRTTransform, UIGraphicsItem
+from third_party.pyqtgraph import functions as fn
 
 # Local repository
-from GUI_ROI_segmentation.general_configs import default as GUI_default
+from calipy.general_configs import default as GUI_default
 
 
 class ROI(GraphicsObject):

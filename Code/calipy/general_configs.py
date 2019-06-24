@@ -1,18 +1,22 @@
 # Graphical packages
 from PyQt5 import QtGui
-from GUI_ROI_segmentation.third_party import pyqtgraph as pg
+from third_party import pyqtgraph as pg
 
 # Local repository
-from GUI_ROI_segmentation.icons import histogram_locked, histogram_unlocked, trace_locked, trace_unlocked, colormap, view_unlocked, view_locked, magnifying_glass, bucket, move, polygon
+from calipy.utils.icons import histogram_locked, histogram_unlocked, trace_locked, trace_unlocked, colormap, view_unlocked, view_locked, magnifying_glass, bucket, move, polygon
 
 
 ################################################################################
 # This dictionary contains the default values for graphical elements.
 default = dict()
 
+# Pre-processing options
+default['frame_rate'] = 3.9
+default['correlation_time_smoothing_window'] = 5
+
 # GUI options
 default['colormap_index'] = 1
-default['all_projection_types'] = ['max', 'mean', 'median', 'standard deviation']
+default['all_projection_types'] = ['max', 'mean', 'median', 'standard deviation', 'correlation']
 default['average_type'] = 'correlation'
 default['projection_type'] = 'max'
 default['max_n_visible_ROI_traces'] = 0
