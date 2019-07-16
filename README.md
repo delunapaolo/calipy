@@ -1,6 +1,6 @@
 # calipy
 
-calipy is a GUI to explore 3D stacks of images, as in x $\times$ y $\times$ time of live microscopy, or x $\times$ y $\times$ z in multi-plane imaging. It has been designed for inspecting larger-than-memory files interactively in real-time.
+calipy is a GUI to explore 3D stacks of images, as in x &times; y &times; time of live microscopy, or x &times; y &times; z in multi-plane imaging. It has been designed for inspecting larger-than-memory files interactively in real-time.
 
 
 ## TL;DR
@@ -102,11 +102,11 @@ _ Speed on large-scale imaging datasets, because it overcomes bottleneck of “s
 
 | Reading and<br>averaging over | “time-first” | “frame-first” | ratio<br>("frame" / "time") |
 |-----------------------:|-------------:|--------------:|:---------------------:|
-| 1 pixel | < 1 ms | .058 s | $\infty$ |
-| Small ROI (40 pixels) | .022 s | .303 s | 14$\times$ |
-| 40 random pixels | .037 s | 153.612 s | 4152$\times$ |
-| Large ROI (300 pixels) | .206 s | 27.168 s | 132$\times$ |
-| 300 random pixels | .253 s | 4780.582 s | 18896$\times$ |
+| 1 pixel | < 1 ms | .058 s | &infin; |
+| Small ROI (40 pixels) | .022 s | .303 s | 14&times; |
+| 40 random pixels | .037 s | 153.612 s | 4152&times; |
+| Large ROI (300 pixels) | .206 s | 27.168 s | 132&times; |
+| 300 random pixels | .253 s | 4780.582 s | 18896&times; |
 
 
 ## 2. The GUI
