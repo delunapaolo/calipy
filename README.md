@@ -9,8 +9,6 @@ calipy is a python software which comprises:
 - A module to convert images to binary files, for real-time exploration and memory-meapping of larger-than-memory image stacks;
 - A GUI with region-of-interest (ROI) selection and average trace inspection.
 
-Jump to [demo](#live_demonstration) below.
-
 
 # Live microscopy imaging
 
