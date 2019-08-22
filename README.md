@@ -6,7 +6,7 @@ calipy is a GUI to explore 3D stacks of images, as in x &times; y &times; time o
 ## TL;DR
 
 calipy is a python software which comprises:
-- A module to convert images to binary files, for real-time exploration and memory-meapping of larger-than-memory image stacks;
+- A module to convert images to binary files, for real-time exploration and memory-mapping of larger-than-memory image stacks;
 - A GUI with region-of-interest (ROI) selection and average trace inspection.
 
 
