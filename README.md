@@ -206,7 +206,7 @@ The file `/src/calipy/general_configs.py` contains a list of parameters, which a
 
 ## Dependencies
 
-pyqtgraph is under active development. Here, I included the version `0.11.0.dev0`, on which I tested calipy. This version is also included in the .yml file, so it will be installed via pip. However, for the moment calipy imports the version included in this repo.
+pyqtgraph `0.11.0.dev0` included in this repo.
 
-`tifffile.py`, version `2019.03.18`, which is part of the library [scikit-image](https://github.com/scikit-image/scikit-image/blob/master/skimage/external/tifffile/tifffile.py) is also part of the repo, to reduce third-party dependencies.
+`tifffile.py`, version `2019.03.18`, which is part of the library [scikit-image](https://github.com/scikit-image/scikit-image/blob/master/skimage/external/tifffile/tifffile.py) is also part of the repo.
 
