@@ -89,7 +89,7 @@ calipy performs two types of conversion: It formats the data into binary format 
 ### Pros of file conversion
 
 - Interactive exploration of traces
-_ Speed on large-scale imaging datasets, because it overcomes bottleneck of “seek” time, which averages 4–15 ms for HDDs and 0.08–0.16 ms for SSDs.
+- Speed on large-scale imaging datasets, because it overcomes bottleneck of “seek” time, which averages 4–15 ms for HDDs and 0.08–0.16 ms for SSDs.
 
 
 ### Cons of file conversion
