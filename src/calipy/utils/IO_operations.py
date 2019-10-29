@@ -1,6 +1,7 @@
 # System packages
 import sys
 import os
+from glob import glob
 import h5py
 import psutil
 import json
@@ -8,6 +9,7 @@ import gc as memory_garbage_collector
 
 # Numerical packages
 import numpy as np
+import pandas as pd
 
 # Local repository
 from third_party import tifffile as tiff
@@ -17,27 +19,34 @@ from calipy.utils.Array_operations import temporal_smooth, cross_correlate_image
 PROJECTIONS_TYPES = ['mean', 'median', 'max', 'standard_deviation', 'correlation']
 
 
-def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_time_first=False):
+def prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=False, overwrite_time_first=False):
+    """
+
+    :param tiff_folder:
+    :param output_folder:
+    :param overwrite_frame_first:
+    :param overwrite_time_first:
+    :return:
+    """
+    # Get list of files
+    tiff_files = glob(tiff_folder + '/**/*.tif*', recursive=True)
+    n_tiff_files = len(tiff_files)
+
     # Initialize output dictionary
     PARAMETERS = dict()
-    PARAMETERS['dataset_ID'] = os.path.split(tiff_folder)[-1]
+    PARAMETERS['dataset_ID'] = os.path.split(os.path.commonprefix(tiff_files))[-1].strip()
     # Initialize conversion flags
     do_convert_frame_first = False
     do_convert_time_first = False
 
     # Iterate through tiff files to find width and height of each field of view (FOV)
-    files = os.listdir(tiff_folder)
-    tiff_files = natural_sort([i for i in files if i.lower().endswith('.tif') or i.lower().endswith('.tiff')])
-    n_tiff_files = len(tiff_files)
-
     log('Reading info on files')
     FOV_size = np.zeros((n_tiff_files, 2), dtype=int)
     n_frames_per_file = np.zeros((n_tiff_files, ), dtype=int)
     TIFF_dtype = np.zeros((n_tiff_files, ), dtype=object)
     for i_file in range(n_tiff_files):
         # Read file and get its shape
-        filename = os.path.join(tiff_folder, tiff_files[i_file])
-        TIFF = tiff.imread(filename)
+        TIFF = tiff.imread(tiff_files[i_file])
         TIFF_shape = TIFF.shape
         if len(TIFF_shape) == 4:
             TIFF = np.mean(TIFF, axis=3)
@@ -63,19 +72,29 @@ def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_tim
     start_condition = np.vstack(([0], end_condition[:-1] + 1))
     frames_idx = np.hstack((start_condition, end_condition))
     PARAMETERS['frames_idx'] = frames_idx.tolist()
-    PARAMETERS['sessions_last_frame'] = n_frames_per_file.tolist()
-    PARAMETERS['condition_names'] = [os.path.splitext(i)[0] for i in tiff_files]
+
+    # Get name of subfolders
+    folders = [os.path.split(i)[-2] for i in tiff_files]
+    folders = [i.replace(os.path.commonprefix(tiff_files), '') for i in folders]
+    PARAMETERS['condition_names'] = [os.path.splitext(os.path.split(i)[-1])[0] for i in tiff_files]
+    # Get beginning and end frame of each session (i.e., a subfolder)
+    condition_names, idx_condition_names = np.unique(folders, return_inverse=True)
+    sessions_last_frame = np.zeros_like(condition_names, dtype=int)
+    for cond_idx, name in enumerate(pd.unique(folders)):
+        idx_this_condition = np.where(idx_condition_names == np.where(np.in1d(condition_names, name))[0][0])[0]
+        sessions_last_frame[cond_idx] = np.sum(n_frames_per_file[idx_this_condition])
+    PARAMETERS['sessions_last_frame'] = sessions_last_frame.tolist()
 
     # Calculate the number of frames that can be held in memory while reading / writing final file
     temp = np.empty(shape=(1, 1), dtype=TIFF_data_type)
     n_frames_per_chunk = max_chunk_size(n_bytes=temp.itemsize, memory_cap=0.90)
 
     # Make filenames of data files
-    PARAMETERS['filename_frame_first'] = os.path.join(tiff_folder, 'stack_frame_first.dat')
-    PARAMETERS['filename_time_first'] = os.path.join(tiff_folder, 'stack_time_first.dat')
-    PARAMETERS['filename_projections'] = os.path.join(tiff_folder, 'projections.hdf5')
+    PARAMETERS['filename_frame_first'] = os.path.join(output_folder, 'stack_frame_first.dat')
+    PARAMETERS['filename_time_first'] = os.path.join(output_folder, 'stack_time_first.dat')
+    PARAMETERS['filename_projections'] = os.path.join(output_folder, 'projections.hdf5')
     # Make filename of output file
-    PARAMETERS['filename_ROIs'] = os.path.join(tiff_folder, 'ROIs_info.mat')
+    PARAMETERS['filename_ROIs'] = os.path.join(output_folder, 'ROIs_info.mat')
 
     # Create frame-first file, if it doesn't exist
     if not os.path.exists(PARAMETERS['filename_frame_first']) or not os.path.exists(PARAMETERS['filename_projections']) or overwrite_frame_first:
@@ -83,7 +102,7 @@ def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_tim
         log('Creating frame-first file in \'%s\'' % PARAMETERS['filename_frame_first'])
         # Make file for data
         n_pixels_FOV = PARAMETERS['frame_height'] * PARAMETERS['frame_width']
-        n_pixels = n_pixels_FOV * PARAMETERS['n_frames']
+        n_pixels = np.int64(n_pixels_FOV) * PARAMETERS['n_frames']
         frame_first_file = np.memmap(PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode="w+", shape=(n_pixels, ))
         # Compute beginning and end of each file
         # n_samples_per_file = n_frames_per_file * PARAMETERS['frame_height'] * PARAMETERS['frame_width']
@@ -93,10 +112,11 @@ def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_tim
 
         for i_file in range(n_tiff_files):
             # Read tiff file
-            filename = os.path.join(tiff_folder, tiff_files[i_file])
-            log('Copying \'%s\'' % tiff_files[i_file])
+            filename = tiff_files[i_file]
+            log('Copying file %i/%i: %s' % (i_file + 1, n_tiff_files, filename))
             TIFF = tiff.imread(filename)
             TIFF_shape = TIFF.shape
+            # Average across color channels
             if len(TIFF_shape) == 4:
                 TIFF = np.mean(TIFF, axis=3)
             n_frames = TIFF.shape[0]
@@ -117,7 +137,7 @@ def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_tim
             # Loop through chunks
             for i_chunk in range(n_chunks_this_file):
                 if n_chunks_this_file > 1:
-                    log('Copying chunk %i/%i' % (i_chunk + 1, n_chunks_this_file))
+                    log('\tCopying chunk %i/%i' % (i_chunk + 1, n_chunks_this_file))
                 # Get edges of chunk
                 start_frame = i_chunk * n_frames_per_chunk_this_file
                 end_frame = np.clip(start_frame + n_frames_per_chunk_this_file, a_min=start_frame + 1, a_max=PARAMETERS['n_frames'])
@@ -145,6 +165,7 @@ def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_tim
         # Make file for projections
         projections_file = h5py.File(PARAMETERS['filename_projections'], 'w', libver='latest')
         for i_file in range(n_tiff_files):
+            log('Processing file %i/%i: %s' % (i_file + 1, n_tiff_files, PARAMETERS['condition_names'][i_file]))
             # Get frames of interest
             frame_indices = frames_idx[i_file, :]
             frames = frame_first_file[:, :, frame_indices[0]:frame_indices[1]]
@@ -200,7 +221,7 @@ def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_tim
         # Loop through chunks
         for i_chunk in range(n_chunks):
             if n_chunks > 1:
-                log('Reshaping chunk %i/%i' % (i_chunk + 1, n_chunks))
+                log('\tReshaping chunk %i/%i' % (i_chunk + 1, n_chunks))
             # Get edges of chunk
             start_frame = i_chunk * n_frames_per_chunk
             end_frame = np.clip(start_frame + n_frames_per_chunk, a_min=start_frame + 1, a_max=PARAMETERS['n_frames'])
@@ -229,7 +250,7 @@ def prepare_data_for_GUI(tiff_folder, overwrite_frame_first=False, overwrite_tim
     memory_garbage_collector.collect()
 
     # Store parameters to disk
-    parameters_filename = os.path.join(tiff_folder, 'parameters.json.txt')
+    parameters_filename = os.path.join(output_folder, 'parameters.json.txt')
     # Convert data types of some fields
     fields_from_num_to_str = ['n_frames', 'frame_height', 'frame_width', 'n_pixels']
     for i in fields_from_num_to_str:
