@@ -51,7 +51,7 @@ class CalIpy(object):
         self.is_stimulus_evoked = 'stimulus_evoked' in list(self.PARAMETERS.keys()) and bool(self.PARAMETERS['stimulus_evoked'])
         self.n_conditions = len(self.PARAMETERS['condition_names'])
         # Open files for reading
-        self.data_frame_first = np.memmap(self.PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode='r', offset=0).reshape((self.PARAMETERS['frame_height'], self.PARAMETERS['frame_width'], self.PARAMETERS['n_frames']))
+        self.data_frame_first = np.memmap(self.PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode='r', offset=0, shape=(self.PARAMETERS['n_frames'], self.PARAMETERS['frame_height'], self.PARAMETERS['frame_width']))
         self.data_time_first = np.memmap(self.PARAMETERS['filename_time_first'], dtype=PARAMETERS['dtype'], mode='r', offset=0).reshape((self.PARAMETERS['n_pixels'], self.PARAMETERS['n_frames']))
 
         # Initialize data and attributes
@@ -149,7 +149,7 @@ class CalIpy(object):
         # Create window
         self.window = Qt_window()
         # Set title
-        self.window.setWindowTitle('ROI Segmentation - %s' % self.PARAMETERS['dataset_ID'])
+        self.window.setWindowTitle('CalIpy - %s' % self.PARAMETERS['dataset_ID'])
         self.window.resized.connect(self.callback_fix_colormap)
         self.window.about_to_close.connect(self.callback_close_window)
 
@@ -301,7 +301,7 @@ class CalIpy(object):
         [ii.setStyle(tickLength=0, showValues=False) for ii in self.frame_image_view.getHistogramWidget().items() if isinstance(ii, pg.AxisItem)]
         self.frame_image_view.ui.roiPlot.hideAxis('bottom')
         # Set image
-        self.frame_image_view.setImage(self.data_frame_first, autoRange=True, axes={'y': 0, 'x': 1, 't': 2}, autoLevels=True)
+        self.frame_image_view.setImage(self.data_frame_first, autoRange=True, axes={'t': 0, 'x': 2, 'y': 1}, autoLevels=True)
         # Hide unused elements
         self.frame_image_view.ui.roiPlot.getPlotItem().hideButtons()  # Hide 'autoscale' button
         [ii.setVisible(False) for ii in self.frame_image_view.timeLine.getViewBox().allChildItems() if isinstance(ii, pg.VTickGroup)]  # Vertical ticks
@@ -555,8 +555,11 @@ class CalIpy(object):
         for idx, row in enumerate(rows):
             roi = self.ROI_TABLE.loc[row, 'handle_ROI']
             area, coords = roi.getArrayRegion(image_to_analyze, self.average_image_view, axes=(0, 1), returnMappedCoords=True)
+            # Extract pixels enclosed by ROI
+            area_mask = roi.renderShapeMask(area.shape[1], area.shape[0]).T
             # Get indices of ROI pixels
-            area_idx = np.where(area > 0)
+            # area_idx = np.where(area > 0)
+            area_idx = np.where(area_mask != 0)
             ROI_idx = np.vstack((coords[0, area_idx[0], area_idx[1]], coords[1, area_idx[0], area_idx[1]]))
             ROI_pixels = np.unique(np.ravel_multi_index(np.round(ROI_idx, decimals=0).astype(int), [self.PARAMETERS['frame_height'], self.PARAMETERS['frame_width']], mode='raise', order='C'))
             # Store mask
@@ -1385,7 +1388,7 @@ class CalIpy(object):
             points = np.array(roi.getState()['points'])
             points = np.vstack((points, points[0, :]))
             # Make PlotItem
-            pi_right = pg.PlotCurveItem(clickable=False)
+            pi_right = pg.PlotCurveItem(pen='r', clickable=False)
             pi_right.setData(x=points[:, 0], y=points[:, 1])
             self.frame_image_view.view.addItem(pi_right)
             pi_right.setPen(pen)
