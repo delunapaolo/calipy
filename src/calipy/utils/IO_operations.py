@@ -14,7 +14,8 @@ import pandas as pd
 # Local repository
 from third_party import tifffile as tiff
 from calipy.general_configs import default as GC
-from calipy.utils.Array_operations import temporal_smooth, cross_correlate_image, natural_sort
+from calipy.utils.Array_operations import temporal_smooth, cross_correlate_image
+
 
 PROJECTIONS_TYPES = ['mean', 'median', 'max', 'standard_deviation', 'correlation']
 
@@ -49,8 +50,7 @@ def prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=False
         TIFF = tiff.imread(tiff_files[i_file])
         TIFF_shape = TIFF.shape
         if len(TIFF_shape) == 4:
-            TIFF = np.mean(TIFF, axis=3)
-            TIFF_shape = TIFF.shape
+            TIFF_shape = TIFF_shape[:3]
         # Store shape
         n_frames_per_file[i_file] = TIFF_shape[0]
         FOV_size[i_file, :] = TIFF_shape[1:]
@@ -101,109 +101,90 @@ def prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=False
         do_convert_frame_first = True
         log('Creating frame-first file in \'%s\'' % PARAMETERS['filename_frame_first'])
         # Make file for data
-        n_pixels_FOV = PARAMETERS['frame_height'] * PARAMETERS['frame_width']
-        n_pixels = np.int64(n_pixels_FOV) * PARAMETERS['n_frames']
-        frame_first_file = np.memmap(PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode="w+", shape=(n_pixels, ))
-        # Compute beginning and end of each file
-        # n_samples_per_file = n_frames_per_file * PARAMETERS['frame_height'] * PARAMETERS['frame_width']
-        # end_condition = n_samples_per_file.cumsum().reshape(-1, 1)
-        # start_condition = np.vstack(([0], end_condition[:-1] + 1))
-        # sample_idx = np.hstack((start_condition, end_condition))
+        destination_shape = (PARAMETERS['n_frames'], PARAMETERS['frame_height'], PARAMETERS['frame_width'])
+        frame_first_file = np.memmap(PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode="w+", shape=destination_shape)
 
         for i_file in range(n_tiff_files):
             # Read tiff file
             filename = tiff_files[i_file]
             log('Copying file %i/%i: %s' % (i_file + 1, n_tiff_files, filename))
-            TIFF = tiff.imread(filename)
+            TIFF = tiff.imread(filename).astype(TIFF_data_type)
             TIFF_shape = TIFF.shape
             # Average across color channels
             if len(TIFF_shape) == 4:
-                TIFF = np.mean(TIFF, axis=3)
-            n_frames = TIFF.shape[0]
+                TIFF = np.nanmean(TIFF, axis=3)
+            # Replace NaNs with 0s
+            TIFF[np.isnan(TIFF)] = 0
 
-            # Calculate number of chunks
-            n_frames_per_chunk_this_file = n_frames_per_chunk
-            n_chunks_this_file = int(np.ceil(np.float64(n_frames) / n_frames_per_chunk_this_file))
-            if n_chunks_this_file == 1:
-                n_frames_per_chunk_this_file = n_frames
-
-            # Get index of first frame of this file
-            if i_file == 0:
-                first_frame_this_file = 0
-            else:
-                first_frame_this_file = n_frames_per_file[i_file - 1]
-            first_sample_this_file = first_frame_this_file * n_pixels_FOV
-
-            # Loop through chunks
-            for i_chunk in range(n_chunks_this_file):
-                if n_chunks_this_file > 1:
-                    log('\tCopying chunk %i/%i' % (i_chunk + 1, n_chunks_this_file))
-                # Get edges of chunk
-                start_frame = i_chunk * n_frames_per_chunk_this_file
-                end_frame = np.clip(start_frame + n_frames_per_chunk_this_file, a_min=start_frame + 1, a_max=PARAMETERS['n_frames'])
-                # Get frames
-                frames = TIFF[start_frame:end_frame, :, :]
-                # Replace NaNs with 0s
-                frames[np.isnan(frames)] = 0
-                # Copy frames
-                sample_start = first_sample_this_file + start_frame * n_pixels_FOV
-                sample_end = first_sample_this_file + end_frame * n_pixels_FOV
-                frame_first_file[sample_start:sample_end] = frames.transpose((1, 2, 0)).ravel()
-                # Flush data to disk
-                frame_first_file.flush()
+            # Get edges of chunk
+            start_frame = int(np.clip(PARAMETERS['frames_idx'][i_file][0] - 1, a_min=0, a_max=PARAMETERS['n_frames']))
+            end_frame = int(np.clip(PARAMETERS['frames_idx'][i_file][1], a_min=start_frame, a_max=PARAMETERS['n_frames']))
+            # Make destination slice
+            destination_slice = (slice(start_frame, end_frame), slice(None), slice(None))
+            # Copy frames
+            frame_first_file[destination_slice] = TIFF.transpose((0, 2, 1))
+            # Flush data to disk
+            frame_first_file.flush()
 
         # Complete writing to disk
         log('Finishing file to disk')
         # Close files (flush data to disk)
-        frame_first_file.flush()
         del frame_first_file
 
         # Compute projections for each condition
         log('Creating projections file in \'%s\'' % PARAMETERS['filename_projections'])
         # first_frame_file
-        frame_first_file = np.memmap(PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode="r", shape=(PARAMETERS['frame_height'], PARAMETERS['frame_width'], PARAMETERS['n_frames']))
+        frame_first_file = np.memmap(PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode="r", shape=destination_shape)
         # Make file for projections
-        projections_file = h5py.File(PARAMETERS['filename_projections'], 'w', libver='latest')
-        for i_file in range(n_tiff_files):
-            log('Processing file %i/%i: %s' % (i_file + 1, n_tiff_files, PARAMETERS['condition_names'][i_file]))
-            # Get frames of interest
-            frame_indices = frames_idx[i_file, :]
-            frames = frame_first_file[:, :, frame_indices[0]:frame_indices[1]]
-
-            # Initialize group
-            hdf5_group = projections_file.create_group('%s' % PARAMETERS['condition_names'][i_file])
-
-            # Compute projection frame
-            for projection_type in PROJECTIONS_TYPES:
-                if projection_type == 'mean':
-                    values = np.mean(frames, axis=-1)
-
-                elif projection_type == 'median':
-                    values = np.median(frames, axis=-1)
-
-                elif projection_type == 'max':
-                    values = np.max(frames, axis=-1)
-
-                elif projection_type == 'standard_deviation':
-                    values = np.std(frames, axis=-1)
-
-                elif projection_type == 'correlation':
-                    # Compute cross-correlation after smoothing video in time(no NaNs allowed)
-                    time_window = int(np.ceil(GC['correlation_time_smoothing_window'] * GC['frame_rate']))
-                    frames_smoothed = temporal_smooth(frames, time_window)
-                    frames_smoothed[np.isnan(frames_smoothed)] = 0
-                    values = cross_correlate_image(frames_smoothed)
-
+        with h5py.File(PARAMETERS['filename_projections'], 'w+', libver='latest') as projections_file:
+            analyzed_datasets = list(projections_file.keys())
+            for i_file in range(n_tiff_files):
+                log('Processing file %i/%i: %s' % (i_file + 1, n_tiff_files, PARAMETERS['condition_names'][i_file]))
+                # Get frames of interest
+                start_frame = int(np.clip(PARAMETERS['frames_idx'][i_file][0] - 1, a_min=0, a_max=PARAMETERS['n_frames']))
+                end_frame = int(np.clip(PARAMETERS['frames_idx'][i_file][1], a_min=start_frame, a_max=PARAMETERS['n_frames']))
+                frames = frame_first_file[start_frame:end_frame, :, :]
+                # Make group and get list of analyzed datasets
+                if PARAMETERS['condition_names'][i_file] in analyzed_datasets:
+                    hdf5_group = projections_file[PARAMETERS['condition_names'][i_file]]
                 else:
-                    raise ValueError('Unknown projection type: \'%s\'' % projection_type)
+                    hdf5_group = projections_file.create_group('%s' % PARAMETERS['condition_names'][i_file])
+                computed_projections = list(hdf5_group.keys())
 
-                # Store data
-                hdf5_group.create_dataset(projection_type, data=values)
+                # Compute projection frame
+                for projection_type in GC['all_projection_types']:
+                    # Remove spaces in name so it can be used as h5 dataset name
+                    projection_type = projection_type.replace(' ', '_')
+                    # Compute projection
+                    if projection_type == 'mean':
+                        values = np.mean(frames, axis=0)
 
-        # Finish writing to disk
-        projections_file.flush()
-        projections_file.close()
+                    elif projection_type == 'median':
+                        values = np.median(frames, axis=0)
+
+                    elif projection_type == 'max':
+                        values = np.max(frames, axis=0)
+
+                    elif projection_type == 'standard_deviation':
+                        values = np.std(frames, axis=0)
+
+                    elif projection_type == 'correlation':
+                        # Compute cross-correlation after smoothing video in time(no NaNs allowed)
+                        time_window = int(np.ceil(GC['correlation_time_smoothing_window'] * GC['frame_rate']))
+                        frames_smoothed = temporal_smooth(frames.transpose((1, 2, 0)), time_window)
+                        frames_smoothed[np.isnan(frames_smoothed)] = 0
+                        values = cross_correlate_image(frames_smoothed)
+
+                    else:
+                        raise ValueError('Unknown projection type: \'%s\'' % projection_type)
+
+                    # Store data
+                    if projection_type in computed_projections:
+                        del hdf5_group[projection_type]
+                    hdf5_group.create_dataset(projection_type, data=values)
+
         # Make sure memory-mapped file is unlinked
+        del projections_file
         memory_garbage_collector.collect()
 
     if not os.path.exists(PARAMETERS['filename_time_first']) or overwrite_time_first:
@@ -212,7 +193,7 @@ def prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=False
         time_first_file = np.memmap(PARAMETERS['filename_time_first'], dtype=PARAMETERS['dtype'], mode="w+", shape=(PARAMETERS['n_pixels'], PARAMETERS['n_frames']))
 
         # Memory-map frame-first file for reading
-        frame_first_file = np.memmap(PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode="r", shape=(PARAMETERS['frame_height'], PARAMETERS['frame_width'], PARAMETERS['n_frames']))
+        frame_first_file = np.memmap(PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode="r", shape=(PARAMETERS['n_frames'], PARAMETERS['frame_height'], PARAMETERS['frame_width']))
 
         # Calculate number of chunks
         n_chunks = int(np.ceil(np.float64(PARAMETERS['n_frames']) / n_frames_per_chunk))
@@ -225,12 +206,12 @@ def prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=False
             # Get edges of chunk
             start_frame = i_chunk * n_frames_per_chunk
             end_frame = np.clip(start_frame + n_frames_per_chunk, a_min=start_frame + 1, a_max=PARAMETERS['n_frames'])
-            # Get frames and transpose into expected shape for a video file
-            frames = frame_first_file[:, :, start_frame:end_frame].transpose((2, 0, 1)).copy()
-            n_frames_read = frames.shape[0]
+            # Get frames
+            frames = frame_first_file[start_frame:end_frame, :, :].copy()
             # Replace NaNs with 0s
             frames[np.isnan(frames)] = 0
             # Copy data collapsing all pixels in a row
+            n_frames_read = frames.shape[0]
             time_first_file[:, start_frame:end_frame] = frames.reshape((n_frames_read, -1)).transpose()
             # Flush data to disk
             time_first_file.flush()
