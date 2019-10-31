@@ -11,8 +11,8 @@ from calipy.utils.icons import histogram_locked, histogram_unlocked, trace_locke
 default = dict()
 
 # Pre-processing options
-default['frame_rate'] = 3.9
-default['correlation_time_smoothing_window'] = 5
+default['frame_rate'] = 30
+default['correlation_time_smoothing_window'] = 1
 
 # GUI options
 default['colormap_index'] = 1
