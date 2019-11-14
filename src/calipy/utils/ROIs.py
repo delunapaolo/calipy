@@ -1563,8 +1563,10 @@ class PolyLineROI(ROI):
         ROI.__init__(self, pos, size=[1, 1], **args)
 
         self.setPoints(positions)
-
         self.menu = self.buildMenu()
+        # Initialize attributes used by GUI
+        self.submenu = None
+        self.ROI_id = None
 
     def buildMenu(self):
         menu = self.getMenu()

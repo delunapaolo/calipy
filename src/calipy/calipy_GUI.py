@@ -10,6 +10,8 @@ from functools import partial
 
 # Graphical packages
 import cv2
+from skimage import filters
+from skimage.morphology import flood, convex_hull_image
 from matplotlib import cm as mpl_colormaps
 from PyQt5 import QtCore, QtGui, QtWidgets
 from third_party import pyqtgraph as pg
@@ -21,13 +23,12 @@ pg.setConfigOption('antialias', False)
 import numpy as np
 import pandas as pd
 from scipy.io import savemat
-from scipy import ndimage
 
 # Local repository
 from calipy.general_configs import default as GUI_default
 from calipy.utils.IO_operations import log
 from calipy.utils.misc import initialize_field, default_colors, make_new_ROI_id, cmapToColormap
-from calipy.utils.Qt import Qt5_QtApp, Qt_window, ImageView, make_toolbar_button, make_toolbar_action, make_QSplitter, CustomViewBox, ProgressDialog, MessageBox, Slider, MultiColumn_QTable
+from calipy.utils.Qt import Qt5_QtApp, Qt_window, ImageView, make_toolbar_button, make_toolbar_action, make_QSplitter, CustomViewBox, ProgressDialog, MessageBox, Slider, MultiColumn_QTable, TimeAxis
 from calipy.utils.Array_operations import idx2range, expand_indices, transform_image_from_parameters, transform_image_from_matrices, natural_sort
 from calipy.utils.ROIs import ROI, PolyLineROI
 from calipy.utils import matlab_file
@@ -53,6 +54,8 @@ class CalIpy(object):
         # Open files for reading
         self.data_frame_first = np.memmap(self.PARAMETERS['filename_frame_first'], dtype=PARAMETERS['dtype'], mode='r', offset=0, shape=(self.PARAMETERS['n_frames'], self.PARAMETERS['frame_height'], self.PARAMETERS['frame_width']))
         self.data_time_first = np.memmap(self.PARAMETERS['filename_time_first'], dtype=PARAMETERS['dtype'], mode='r', offset=0).reshape((self.PARAMETERS['n_pixels'], self.PARAMETERS['n_frames']))
+        self.time = np.linspace(0, self.PARAMETERS['n_frames'] / GUI_default['frame_rate'], self.PARAMETERS['n_frames'])
+        self.time_range = [self.time.min(), self.time.max()]
 
         # Initialize data and attributes
         self.stimulus_profile = None
@@ -68,7 +71,7 @@ class CalIpy(object):
         for avg_typ in data_average_types:
             self.data_average[avg_typ] = np.dstack(self.data_average[avg_typ]).transpose((2, 0, 1))
         # Convert index of frames from string to numerical
-        self.frames_idx = self.PARAMETERS['frames_idx']
+        self.frames_idx = self.PARAMETERS['frames_idx'].astype(np.int64)
         # Sort frames and trials
         order = np.argsort(self.frames_idx, axis=0)[:, 0]
         self.frames_idx = self.frames_idx[order, :]
@@ -307,8 +310,9 @@ class CalIpy(object):
         [ii.setVisible(False) for ii in self.frame_image_view.timeLine.getViewBox().allChildItems() if isinstance(ii, pg.VTickGroup)]  # Vertical ticks
         # Add boundaries of each session
         self.frame_image_view.timeLine.setZValue(1)
-        for ii in range(self.PARAMETERS['sessions_last_frame'].shape[0] - 1):  # -1 because we ignore the very last idx
-            l = pg.InfiniteLine(pos=self.PARAMETERS['sessions_last_frame'][ii], angle=90, pen=pg.mkPen(color=(77, 77, 77)))
+        for ii in range(self.PARAMETERS['sessions_last_frame'].shape[0] - 1):  # -1 because we ignore the last idx
+            pos = self.PARAMETERS['sessions_last_frame'][ii] / GUI_default['frame_rate']
+            l = pg.InfiniteLine(pos=pos, angle=90, pen=pg.mkPen(color=(77, 77, 77)))
             l.setZValue(1)
             self.frame_image_view.ui.roiPlot.addItem(l)
         # Add label to identify condition shown
@@ -337,27 +341,24 @@ class CalIpy(object):
         bottom_layout.addWidget(self.ROI_border)
         bottom_layout.setStretchFactor(0, 1)
         # Add on the bottom a graph to see Calcium traces
-        self.trace_time_mark = pg.InfiniteLine(angle=90, bounds=[0, self.PARAMETERS['n_frames']], pen=pg.mkPen(color='r', width=3), movable=True)
+        self.trace_time_mark = pg.InfiniteLine(angle=90, bounds=self.time_range, pen=pg.mkPen(color='r', width=3), movable=True)
         self.trace_time_mark.setZValue(3)
-        v = pg.GraphicsView()
-        self.trace_viewbox = pg.ViewBox()
-        # self.trace_axis = pg.AxisItem('left', linkView=self.trace_viewbox)
-        # self.trace_viewbox.addItem(self.trace_axis)
-
+        self.trace_viewbox = pg.PlotWidget(axisItems={'bottom': TimeAxis('bottom', showValues=True, maxTickLength=-5)})
+        self.trace_viewbox.plotItem.hideButtons()
         self.trace_viewbox.setMenuEnabled(False)
         # Set limits of viewbox and enable auto-fit
-        self.trace_viewbox.setLimits(xMin=0, xMax=self.PARAMETERS['n_frames'])
+        self.trace_viewbox.setLimits(xMin=self.time_range[0], xMax=self.time_range[1])
         self.trace_viewbox.setMouseEnabled(x=True, y=False)
-        v.setCentralItem(self.trace_viewbox)
         self.trace_viewbox.addItem(self.trace_time_mark)
 
         # Add boundaries of each session
-        for ii in range(self.PARAMETERS['sessions_last_frame'].shape[0] - 1):  # -1 because we ignore the very last idx
-            l = pg.InfiniteLine(pos=self.PARAMETERS['sessions_last_frame'][ii], angle=90, pen=pg.mkPen(color=(77, 77, 77)))
+        for ii in range(self.PARAMETERS['sessions_last_frame'].shape[0] - 1):  # -1 because we ignore the last idx
+            pos = self.PARAMETERS['sessions_last_frame'][ii] / GUI_default['frame_rate']
+            l = pg.InfiniteLine(pos=pos, angle=90, pen=pg.mkPen(color=(77, 77, 77)))
             l.setZValue(1)
             self.trace_viewbox.addItem(l)
-        self.trace_viewbox.setRange(xRange=[0, self.PARAMETERS['n_frames']], disableAutoRange=False)
-        bottom_layout.addWidget(v)
+        self.trace_viewbox.setRange(xRange=self.time_range, disableAutoRange=False)
+        bottom_layout.addWidget(self.trace_viewbox)
         bottom_layout.setStretchFactor(1, 3)
 
         # Make final layout
@@ -404,7 +405,7 @@ class CalIpy(object):
         self.menu.reload.setShortcut(QtGui.QKeySequence('Ctrl+R'))
         self.menu.delete_ROIs.triggered.connect(partial(self.callback_reload, what='ROIs'))
         self.menu.auto_adjust_histograms.triggered.connect(self.callback_auto_adjust_histograms)
-        [ii.triggered.connect(partial(self.callback_menu_projection_type, name=jj)) for ii, jj in zip(self.menu.projection_actions,self.projection_types)]
+        [ii.triggered.connect(partial(self.callback_menu_projection_type, name=jj)) for ii, jj in zip(self.menu.projection_actions, self.projection_types)]
         [ii.triggered.connect(partial(self.callback_menu_average_type, name=jj)) for ii, jj in zip(self.menu.average_actions, self.average_types)]
         [ii.triggered.connect(partial(self.callback_menu_operation_type, name=jj)) for ii, jj in zip(self.menu.ROI_operation_actions, self.operation_types)]
 
@@ -928,9 +929,9 @@ class CalIpy(object):
                 brush = pg.mkBrush(None)
             else:
                 brush = GUI_default['region_colors_light']
-            reg2 = pg.LinearRegionItem(movable=False, bounds=[0, self.PARAMETERS['n_frames']], brush=brush, pen=pg.mkPen(None))
-            # Set region
-            reg2.setRegion(regions[ireg, :])
+            reg2 = pg.LinearRegionItem(movable=False, bounds=self.time_range, brush=brush, pen=pg.mkPen(None))
+            # Set region (in time)
+            reg2.setRegion(regions[ireg, :] / GUI_default['frame_rate'])
             reg2.setZValue(0)
             self.trace_viewbox.addItem(reg2, ignoreBounds=True)
 
@@ -1045,7 +1046,12 @@ class CalIpy(object):
         item.axes['bottom']['item'].setPen(foreground_color)
 
         # Bottom panels
-        self.trace_viewbox.setBackgroundColor(background_color)
+        self.trace_viewbox.setBackground(background_color)
+        items = self.trace_viewbox.scene().items()
+        items = [ii for ii in items if ii.__class__.__name__ == 'PlotItem']
+        [item.axes['left']['item'].setPen(foreground_color) for item in items]
+        [item.axes['bottom']['item'].setPen(foreground_color) for item in items]
+
         if self.stimulus_profile is not None:
             self.stimulus_profile.setPen(GUI_default['stimulus_profile_pen'][self.current_colormap])
         lut = self.colormap[self.current_colormap].getLookupTable(0.0, 1.0, 256)
@@ -1320,6 +1326,11 @@ class CalIpy(object):
     def callback_draw_ROI(self):
         # Check that user is drawing an ROI
         if self.current_action == 'drawing_ROI':
+            # Initialize local variables
+            last_row = None
+            shown_traces = None
+            roi = None
+
             # Toggle internal flag
             self.current_action = ''
 
@@ -1336,46 +1347,49 @@ class CalIpy(object):
             pen = pg.mkPen(color=self.next_ROI_color, width=GUI_default['ROI_linewidth_thick'])
             # Compute points
             if self.selected_ROI_type == 'fill':
-                # Reset value of tolerance
-                self.flood_tolerance = GUI_default['flood_tolerance']
                 reference_pixel = points[0].copy()
                 points = self.make_ROI_from_point(reference_pixel)
+                flood_tolerance = self.flood_tolerance
             else:
                 reference_pixel = 0
+                flood_tolerance = 0
 
-            if len(points) < 3:  # Cannot close an area with less than 3 points
-                return
-            # Make ROI
-            roi = PolyLineROI(points, pen=pen, closed=True, movable=True, removable=True)
-            # Automatically select this ROI
-            self.selected_ROI = roi
-            # Add contextual menu to change color of the ROI
-            self.ROI_add_context_menu(roi)
-            # Add ROI to plot
-            self.average_image_viewbox.addItem(roi)
+            draw_ROI = len(points) > 2  # Cannot close an area with less than 3 points
+            if draw_ROI:
+                # Make ROI
+                roi = PolyLineROI(points, pen=pen, closed=True, movable=True, removable=True)
+                # Automatically select this ROI
+                self.selected_ROI = roi
+                # Add contextual menu to change color of the ROI
+                self.ROI_add_context_menu(roi)
+                # Add ROI to plot
+                self.average_image_viewbox.addItem(roi)
 
-            # Connect callbacks
-            roi.sigRegionChanged.connect(partial(self.callback_update_zoom_ROI, update_trace=True, update_ROI_contour=True))
-            roi.sigRemoveRequested.connect(partial(self.callback_remove_ROI, log_outcome=True))
-            roi.sigClicked.connect(self.callback_click_ROI)
-            roi.setAcceptedMouseButtons(QtCore.Qt.LeftButton)
+                # Connect callbacks
+                roi.sigRegionChanged.connect(partial(self.callback_update_zoom_ROI, update_trace=True, update_ROI_contour=True))
+                roi.sigRemoveRequested.connect(partial(self.callback_remove_ROI, log_outcome=True))
+                roi.sigClicked.connect(self.callback_click_ROI)
+                roi.setAcceptedMouseButtons(QtCore.Qt.LeftButton)
 
-            # Store info on this ROI
-            ROI_id = make_new_ROI_id(self.ROI_TABLE['id'])
-            roi.ROI_id = ROI_id  # Write it in the handle so we can always come back to the table without checking where the handle was
-            # Get number of traces shown before adding the new one
-            shown_traces = np.where(self.ROI_TABLE['show_trace'])[0].shape[0]
-            last_row = self.ROI_TABLE.shape[0]
-            self.ROI_TABLE.at[last_row, 'id'] = ROI_id
-            self.ROI_TABLE.at[last_row, 'handle_ROI'] = roi
-            self.ROI_TABLE.at[last_row, 'handle_ROI_contour'] = None
-            self.ROI_TABLE.at[last_row, 'handle_trace'] = None
-            self.ROI_TABLE.at[last_row, 'type'] = self.selected_ROI_type
-            self.ROI_TABLE.at[last_row, 'reference_pixel'] = reference_pixel
-            self.ROI_TABLE.at[last_row, 'flood_tolerance'] = self.flood_tolerance
-            self.ROI_TABLE.at[last_row, 'region'] = points
-            self.ROI_TABLE.at[last_row, 'color'] = self.next_ROI_color
-            self.ROI_TABLE.at[last_row, 'show_trace'] = True
+                # Store info on this ROI
+                ROI_id = make_new_ROI_id(self.ROI_TABLE['id'])
+                roi.ROI_id = ROI_id  # Write it in the handle so we can always come back to the table without checking where the handle was
+                # Get number of traces shown before adding the new one
+                shown_traces = np.where(self.ROI_TABLE['show_trace'])[0].shape[0]
+                last_row = self.ROI_TABLE.shape[0]
+                self.ROI_TABLE.at[last_row, 'id'] = ROI_id
+                self.ROI_TABLE.at[last_row, 'handle_ROI'] = roi
+                self.ROI_TABLE.at[last_row, 'handle_ROI_contour'] = None
+                self.ROI_TABLE.at[last_row, 'handle_trace'] = None
+                self.ROI_TABLE.at[last_row, 'type'] = self.selected_ROI_type
+                self.ROI_TABLE.at[last_row, 'reference_pixel'] = reference_pixel
+                self.ROI_TABLE.at[last_row, 'flood_tolerance'] = flood_tolerance
+                self.ROI_TABLE.at[last_row, 'region'] = points
+                self.ROI_TABLE.at[last_row, 'color'] = self.next_ROI_color
+                self.ROI_TABLE.at[last_row, 'show_trace'] = True
+
+            else:
+                self.selected_ROI = None
 
             # Deactivate crosshair
             self.toggle_crosshair('off')
@@ -1384,46 +1398,47 @@ class CalIpy(object):
             # Toggle flood tolerance slider
             self.toggle_slider_flood_tolerance(self.selected_ROI_type == 'fill')
 
-            # Transform ROI to a static polygon
-            points = np.array(roi.getState()['points'])
-            points = np.vstack((points, points[0, :]))
-            # Make PlotItem
-            pi_right = pg.PlotCurveItem(pen='r', clickable=False)
-            pi_right.setData(x=points[:, 0], y=points[:, 1])
-            self.frame_image_view.view.addItem(pi_right)
-            pi_right.setPen(pen)
-            self.ROI_TABLE.at[last_row, 'handle_ROI_contour'] = pi_right
-            # Update plot range
-            self.frame_image_view.view.autoRange()
+            if draw_ROI:
+                # Transform ROI to a static polygon
+                points = np.array(roi.getState()['points'])
+                points = np.vstack((points, points[0, :]))
+                # Make PlotItem
+                pi_right = pg.PlotCurveItem(pen='r', clickable=False)
+                pi_right.setData(x=points[:, 0], y=points[:, 1])
+                self.frame_image_view.view.addItem(pi_right)
+                pi_right.setPen(pen)
+                self.ROI_TABLE.at[last_row, 'handle_ROI_contour'] = pi_right
+                # Update plot range
+                self.frame_image_view.view.autoRange()
 
-            # Change color around ROI viewbox
-            self.color_ROI_view_border(color=self.next_ROI_color)
+                # Change color around ROI viewbox
+                self.color_ROI_view_border(color=self.next_ROI_color)
 
-            # Drawing this ROI is finished, so re-enable menus
-            self.menu.menubar.setEnabled(True)
-            self.toggle_toolbar('on', because='ROI_drawing')
-            # If there are ROIs present, enable the tool that allows to translate the field of view
-            n_ROIs = self.ROI_TABLE.shape[0]
-            self.buttons.translation_ROI.setEnabled(n_ROIs > 0)
-            # Trigger update immediately
-            if self.selected_ROI_type != 'fill':
-                roi.sigRegionChanged.emit(roi)
-            # Update trace range
-            if shown_traces == 0:
-                self.callback_reset_zoom(where='trace')
-            # Set which traces can be shown
-            self.callback_update_visibility_traces(from_button=False)
-            self.update_trace_zvalue()
+                # Drawing this ROI is finished, so re-enable menus
+                self.menu.menubar.setEnabled(True)
+                self.toggle_toolbar('on', because='ROI_drawing')
+                # If there are ROIs present, enable the tool that allows to translate the field of view
+                n_ROIs = self.ROI_TABLE.shape[0]
+                self.buttons.translation_ROI.setEnabled(n_ROIs > 0)
+                # Trigger update immediately
+                if self.selected_ROI_type != 'fill':
+                    roi.sigRegionChanged.emit(roi)
+                # Update trace range
+                if shown_traces == 0:
+                    self.callback_reset_zoom(where='trace')
+                # Set which traces can be shown
+                self.callback_update_visibility_traces(from_button=False)
+                self.update_trace_zvalue()
 
-            # Set value of slider to tolerance value used to compute this ROI
-            if self.selected_ROI_type == 'fill':
-                self.slider.blockSignals(True)
-                self.slider.setValue(self.flood_tolerance * 10)
-                self.slider_label.setText('%.1f' % self.flood_tolerance)
-                self.slider.blockSignals(False)
+                # Set value of slider to tolerance value used to compute this ROI
+                if self.selected_ROI_type == 'fill':
+                    self.slider.blockSignals(True)
+                    self.slider.setValue(self.flood_tolerance * 10)
+                    self.slider_label.setText('%.1f' % self.flood_tolerance)
+                    self.slider.blockSignals(False)
 
-            # Log outcome
-            log('Added ROI #%i' % roi.ROI_id)
+                # Log outcome
+                log('Added ROI #%i' % roi.ROI_id)
 
             # Re-start tool for drawing ROIs
             self.callback_draft_ROI()
@@ -1522,7 +1537,7 @@ class CalIpy(object):
                 pi = self.ROI_TABLE.loc[table_row, 'handle_trace']
 
             # Update data
-            pi.setData(L, connect='finite')
+            pi.setData(self.time, L, connect='finite')
             # Update z-values
             self.update_trace_zvalue()
 
@@ -1737,32 +1752,23 @@ class CalIpy(object):
         img[np.isnan(img)] = 0
         # Normalize image to [0-100] range
         image = img / np.nanmax(img) * 100.
-        # image = 255 * image
-        # image = image.astype(np.uint8)
-        # Make a 4-connected neighbor structure
-        structure = np.zeros((3, 3), dtype=int)
-        structure[1, :] = 1
-        structure[:, 1] = 1
-
-        # Get value of reference pixel
-        ref = image[xy_coords[0], xy_coords[1]]
-        color_mask = ref - image <= self.flood_tolerance
-        objects = ndimage.label(color_mask, structure=structure)[0]
-        # Find objects
-        [x, y] = np.where(objects > 0)
-        v = objects[objects > 0]
-        xy = np.vstack((x, y)).transpose()
-        # Find nearest object
-        object_idx = np.argmin(np.sum((xy - xy_point)**2, axis=1))
-        object_id = v[object_idx]
-        # Assign label
-        mask = np.zeros((self.PARAMETERS['frame_height'], self.PARAMETERS['frame_width']))
-        mask[objects == object_id] = 1
-        # Fill holes
-        mask = ndimage.morphology.binary_fill_holes(mask, structure=structure).astype(np.uint8)
+        # Filter image and fill it in up to a certain tolerance to create a mask.
+        # Use the clicked point as seed point
+        x, y = np.indices(image.shape)
+        radius = int(np.ceil(GUI_default['max_n_diameter'] / 2))
+        sobel_mask = np.array((x - xy_coords[1]) ** 2 + (y - xy_coords[0]) ** 2 < radius ** 2)
+        image_sobel = filters.sobel(image, sobel_mask)
+        image_seg = flood(image_sobel, (xy_coords[1], xy_coords[0]), tolerance=self.flood_tolerance)
+        # Use convex hull approximation to smooth contour
+        image_hull = convex_hull_image(image_seg).astype(np.uint8)
+        # If the ROI occupies more than a certain area, it means that the tolerance
+        # is too low. In that case, log it and return an empty list
+        if image_hull.sum() / sobel_mask.astype(np.uint8).sum() * 100 > GUI_default['max_area_percent']:
+            log('Tolerance is too low. Either try another pixel, increase the contrast or increase the tolerance')
+            return list()
 
         # Detect contours in the mask
-        points = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1 )[1]
+        points = cv2.findContours(image_hull, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)[1]
         points = np.squeeze(points[0])
 
         # Approximate curve
@@ -1775,21 +1781,28 @@ class CalIpy(object):
             n_points = new_points.shape[0]
             epsilon += .1
         # Make 2D
-        points = np.fliplr(np.squeeze(new_points))
+        points = np.squeeze(new_points)
 
         return points
 
 
     def callback_flood_tolerance_value_changed(self, new_value):
         if self.current_action == '':
+            # Update slider's label
+            self.flood_tolerance = new_value / 10.
+            self.slider_label.setText('%.1f' % self.flood_tolerance)
+
+            # If no ROI is currently selected, return immediately
+            if self.selected_ROI is None:
+                return
+
             # Get type of currently selected ROI
-            table_row = self.ROI_TABLE[self.ROI_TABLE['id'] == self.selected_ROI.ROI_id].index.values[0]
+            try:
+                table_row = self.ROI_TABLE[self.ROI_TABLE['id'] == self.selected_ROI.ROI_id].index.values[0]
+            except AttributeError:
+                return
             ROI_type = self.ROI_TABLE.loc[table_row, 'type']
             if ROI_type == 'fill':
-                # Update slider's label
-                self.flood_tolerance = new_value / 10.
-                self.slider_label.setText('%.1f' % self.flood_tolerance)
-
                 points = self.make_ROI_from_point(self.ROI_TABLE.loc[table_row, 'reference_pixel'])
                 if len(points) < 3:  # Cannot close an area with less than 3 points
                     return
@@ -1810,7 +1823,7 @@ class CalIpy(object):
         if new_state:
             self.toggle_toolbar('off', because='translating_field_of_view')
             # Make ROI that is as big as field of view
-            self.translation_ROI = ROI([0, 0], [self.PARAMETERS['frame_height'], self.PARAMETERS['frame_width']], removable=False, invisible=False)
+            self.translation_ROI = ROI([0, 0], [self.PARAMETERS['frame_width'], self.PARAMETERS['frame_height']], removable=False, invisible=False)
             self.translation_ROI.setZValue(0)
             # Add rotation and scaling handles
             self.translation_ROI.addRotateHandle([1, 1], center=[0.5, 0.5])
@@ -1931,7 +1944,7 @@ class CalIpy(object):
                 frame = transform_image_from_matrices(frame, scale, rotation, translation)
 
             # Update image
-            self.frame_image_view.imageItem.updateImage(frame, autoHistogramRange=self.auto_adjust_histograms)
+            self.frame_image_view.imageItem.updateImage(frame.T, autoHistogramRange=self.auto_adjust_histograms)
 
 
     def get_FOV_translation_state(self):
@@ -1946,7 +1959,8 @@ class CalIpy(object):
         y = np.array([h.viewPos().y() for h in handles])
         center_ROI = [x.mean(), y.mean()]
         offset = np.array([center_ROI[0] - self.PARAMETERS['frame_width'] / 2., center_ROI[1] - self.PARAMETERS['frame_height'] / 2.])
-
+		# Invert offset coordinates because images are row-major
+        offset = np.array([offset[1], offset[0]])
         return scale, angle, offset
 
 
@@ -2084,11 +2098,12 @@ class CalIpy(object):
             # Get position of timeline
             if from_plot == 'frame':
                 ind, time = self.frame_image_view.timeIndex(self.frame_image_view.timeLine)
+                time = time / GUI_default['frame_rate']
             elif from_plot == 'trace':
                 time = self.trace_time_mark.getXPos()
-                ind = int(np.round(time))
+                ind = np.argmin(np.abs(self.time - time))
             # Abort if timeline has been pulled outside range
-            if ind < 0 or ind >= self.PARAMETERS['n_frames']:
+            if time < self.time[0] or time >= self.time_range[1]:
                 self.updating_timeline_position = False
                 return
 
@@ -2246,36 +2261,36 @@ class CalIpy(object):
             selected_frames = self.frames_idx[self.current_average_frame, :].ravel()
             selected_frames_range = [selected_frames.min(), selected_frames.max()]
             # Limit range in trace viewbox
-            if self.trace_anchored:
-                self.trace_viewbox.setRange(xRange=selected_frames_range, padding=0, disableAutoRange=False)
+            # if self.trace_anchored:
+            #     self.trace_viewbox.setRange(xRange=selected_frames_range, padding=0, disableAutoRange=False)
                 # Show stimulus profile, if any
-                if self.is_stimulus_evoked:
-                    # Delete previous stimulus profiles
-                    if self.stimulus_profile is not None:
-                        self.trace_viewbox.removeItem(self.stimulus_profile)
-                    # Get number of traces currently shown
-                    n_shown_traces = np.where(self.ROI_TABLE['show_trace'] == True)[0].shape[0]
-                    # Show stimulus only if one trial selected and at least one trace shown
-                    if len(self.current_average_frame) == 1 and n_shown_traces >= 1:
-                        # Get index of stimulus presented (and respect python's 0-indexing)
-                        stimulus_idx = self.PARAMETERS['condition_has_stimulus'][self.current_average_frame[0]] - 1
-                        stimulus_profile = self.PARAMETERS['stimuli'][stimulus_idx, 1]
-                        # Make sure visible range starts from 0
-                        visible_range = list()
-                        visible_traces = self.ROI_TABLE.loc[self.ROI_TABLE['show_trace'] == True, 'handle_trace'].values
-                        for t in visible_traces:
-                            visible_range.append(t.yData[selected_frames_range[0]:selected_frames_range[1]].max())
-                        # Make sure bottom is 0
-                        visible_range = [0, max(visible_range)]
-                        self.trace_viewbox.setRange(yRange=visible_range, disableAutoRange=False)
-                        # Scale stimulus profile to span entire visible range
-                        stimulus_profile = stimulus_profile * visible_range[1]
-                        # Draw new stimulus profile
-                        self.stimulus_profile = pg.PlotCurveItem(clickable=False)
-                        self.stimulus_profile.setData(x=np.arange(selected_frames_range[0], selected_frames_range[1]+1), y=stimulus_profile)
-                        self.trace_viewbox.addItem(self.stimulus_profile)
-                        self.stimulus_profile.setPen(GUI_default['stimulus_profile_pen'][self.current_colormap])
-                        self.stimulus_profile.setZValue(0)
+                # if self.is_stimulus_evoked:
+                #     # Delete previous stimulus profiles
+                #     if self.stimulus_profile is not None:
+                #         self.trace_viewbox.removeItem(self.stimulus_profile)
+                #     # Get number of traces currently shown
+                #     n_shown_traces = np.where(self.ROI_TABLE['show_trace'] == True)[0].shape[0]
+                #     # Show stimulus only if one trial selected and at least one trace shown
+                #     if len(self.current_average_frame) == 1 and n_shown_traces >= 1:
+                #         # Get index of stimulus presented (and respect python's 0-indexing)
+                #         stimulus_idx = self.PARAMETERS['condition_has_stimulus'][self.current_average_frame[0]] - 1
+                #         stimulus_profile = self.PARAMETERS['stimuli'][stimulus_idx, 1]
+                #         # Make sure visible range starts from 0
+                #         visible_range = list()
+                #         visible_traces = self.ROI_TABLE.loc[self.ROI_TABLE['show_trace'] == True, 'handle_trace'].values
+                #         for t in visible_traces:
+                #             visible_range.append(t.yData[selected_frames_range[0]:selected_frames_range[1]].max())
+                #         # Make sure bottom is 0
+                #         visible_range = [0, max(visible_range)]
+                #         self.trace_viewbox.setRange(yRange=visible_range, disableAutoRange=False)
+                #         # Scale stimulus profile to span entire visible range
+                #         stimulus_profile = stimulus_profile * visible_range[1]
+                #         # Draw new stimulus profile
+                #         self.stimulus_profile = pg.PlotCurveItem(clickable=False)
+                #         self.stimulus_profile.setData(x=np.arange(selected_frames_range[0], selected_frames_range[1]+1), y=stimulus_profile)
+                #         self.trace_viewbox.addItem(self.stimulus_profile)
+                #         self.stimulus_profile.setPen(GUI_default['stimulus_profile_pen'][self.current_colormap])
+                #         self.stimulus_profile.setZValue(0)
 
             # Update timelines
             if self.views_linked:

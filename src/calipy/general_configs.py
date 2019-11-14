@@ -16,9 +16,9 @@ default['correlation_time_smoothing_window'] = 1
 
 # GUI options
 default['colormap_index'] = 1
-default['all_projection_types'] = ['max', 'mean', 'median', 'standard deviation', 'correlation']
-default['average_type'] = 'correlation'
+default['all_projection_types'] = ['max', 'mean', 'median', 'standard deviation']
 default['projection_type'] = 'max'
+default['average_type'] = 'correlation'
 default['max_n_visible_ROI_traces'] = 0
 
 default['ROI_linewidth_thick'] = 2
@@ -57,6 +57,8 @@ default['max_button_width'] = 500
 default['ROI_type'] = 'polygon'
 default['flood_tolerance'] = 10
 default['max_n_points'] = 15
+default['max_n_diameter'] = 50
+default['max_area_percent'] = 50
 default['icons'] = dict()
 default['icons']['toggle_colormap'] = colormap
 default['icons']['link_views'] = (view_unlocked, view_locked)
