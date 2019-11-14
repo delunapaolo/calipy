@@ -83,7 +83,7 @@ def prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=False
     for cond_idx, name in enumerate(pd.unique(folders)):
         idx_this_condition = np.where(idx_condition_names == np.where(np.in1d(condition_names, name))[0][0])[0]
         sessions_last_frame[cond_idx] = np.sum(n_frames_per_file[idx_this_condition])
-    PARAMETERS['sessions_last_frame'] = sessions_last_frame.tolist()
+    PARAMETERS['sessions_last_frame'] = np.cumsum(sessions_last_frame).tolist()
 
     # Calculate the number of frames that can be held in memory while reading / writing final file
     temp = np.empty(shape=(1, 1), dtype=TIFF_data_type)
@@ -152,7 +152,7 @@ def prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=False
                 computed_projections = list(hdf5_group.keys())
 
                 # Compute projection frame
-                for projection_type in GC['all_projection_types']:
+                for projection_type in PROJECTIONS_TYPES:
                     # Remove spaces in name so it can be used as h5 dataset name
                     projection_type = projection_type.replace(' ', '_')
                     # Compute projection
