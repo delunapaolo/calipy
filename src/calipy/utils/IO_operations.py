@@ -10,9 +10,9 @@ import gc as memory_garbage_collector
 # Numerical packages
 import numpy as np
 import pandas as pd
+from skimage.external.tifffile import tifffile as tiff
 
 # Local repository
-from third_party import tifffile as tiff
 from calipy.general_configs import default as GC
 from calipy.utils.Array_operations import temporal_smooth, cross_correlate_image
 
