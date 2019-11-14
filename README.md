@@ -23,7 +23,7 @@ Image stacks microscopy generates large tiff files, which are usually opened and
 The proposed software offers a two-fold solution:
 
 - A converter, which rewrites files in a binary format and concatenates all files together, so they can be analyzed as a whole;
-- A GUI with commands to select ROIs manually or via the watershed method. 
+- A GUI with commands to select ROIs manually or via flood filling method.
 
 It is implemented in python to leverage on two powerful libraries: [numpy](https://www.numpy.org/) and [pyqtgraph](http://pyqtgraph.org/).
 
@@ -31,26 +31,26 @@ It is implemented in python to leverage on two powerful libraries: [numpy](https
 ## 1. The converter
 
 First, tiff files are concatenated and converted to binary files with the function
-    
+
     calipy.utils.IO_operations.prepare_data_for_GUI()
-    
-Four files are generated as result: 
+
+Four files are generated as result:
 
 - `stack_frame_first.dat` contains all data, written in a standard format.
 - `stack_time_first.dat` contains all data, written in a time-first order (see below). It is this file that allows visualization and inspection of the trace in real-time.
 - `parameters.json.txt` contains information regarding the current analysis session. An example is the following:
 
         {
-        "dataset_ID": "demo_calipy", 
-        "n_frames": 134, 
-        "frame_height": 480, 
-        "frame_width": 500, 
-        "n_pixels": 240000, 
-        "dtype": "float64", 
-        "frames_idx": [[0, 134]], 
-        "sessions_last_frame": [134], 
-        "condition_names": ["0104"], 
-        "filename_frame_first": "demo_calipy/stack_frame_first.dat", 
+        "dataset_ID": "demo_calipy",
+        "n_frames": 134,
+        "frame_height": 480,
+        "frame_width": 500,
+        "n_pixels": 240000,
+        "dtype": "float64",
+        "frames_idx": [[0, 134]],
+        "sessions_last_frame": [134],
+        "condition_names": ["0104"],
+        "filename_frame_first": "demo_calipy/stack_frame_first.dat",
         "filename_time_first": "demo_calipy/stack_time_first.dat",
         "filename_projections": "demo_calipy/projections.hdf5",
         "filename_ROIs": "demo_calipy/ROIs_info.mat"
@@ -66,7 +66,7 @@ Four files are generated as result:
 
 ### Why a converter?
 
-Because reading from a binary file is very fast with numpy. However, all files are written in a "flat" format. 
+Because reading from a binary file is very fast with numpy. However, all files are written in a "flat" format.
 
 <div style="text-align:center"><img src="resources/gifs_introduction/1. Reading an image file.gif"/></div>
 
@@ -74,7 +74,7 @@ Usually, pixels that are closer in space are also stored closer on disk. I call 
 
 <div style="text-align:center"><img src="resources/gifs_introduction/2. Reading a single frame from a frame-first image stack.gif"/></div>
 
-... than reading a single location across frames. 
+... than reading a single location across frames.
 
 <div style="text-align:center"><img src="resources/gifs_introduction/3. Reading along time from a frame-first image stack.gif"/></div>
 
@@ -114,7 +114,7 @@ calipy performs two types of conversion: It formats the data into binary format 
 
 ### Concept
 
-calipy offers a GUI to interactively explore the average pixel value of ROIs along the third dimension of the stack, for example, fluorescence traces in the case of live calcium-imaging microscopy. 
+calipy offers a GUI to interactively explore the average pixel value of ROIs along the third dimension of the stack, for example, fluorescence traces in the case of live calcium-imaging microscopy.
 The GUI has four panels and a table:
 
 <div style="text-align:center"><img src="resources/concept/GUI look and feel.png"/></div>
@@ -136,7 +136,7 @@ The GUI is based on pyqtgraph, a very powerful plotting library, which offers ma
 
 The following gif shows how scrolling through a larger-than-memory file happens in real-time, with no delays. Also, notice how:
 
-+ the histogram on the right of the `Single-frame viewer` quicly updates to the range of the current frame. 
++ the histogram on the right of the `Single-frame viewer` quicly updates to the range of the current frame.
 + the cursor in the `Trace viewer` follows the position marked in the `Single-frame selector`.
 
 <div style="text-align:center"><img src="resources/gifs_demo/1. Real-time scrolling.gif"/></div>
@@ -155,7 +155,7 @@ In the next gif, I show how selecting a session (which is a compilation of imagi
 ROIs can be selected by drawing a polygon and pressing Enter to accept the selection. Notice how, after completing an ROI:
 
 + The trace immediately appears in the `Trace viewer`.
-+ The ROI is magnified in the `ROI viewer`. 
++ The ROI is magnified in the `ROI viewer`.
 
 <div style="text-align:center"><img src="resources/gifs_demo/3. Polygon selector.gif"/></div>
 
@@ -198,15 +198,8 @@ calipy's GUI alos offers more advanced commands to:
 
 # Installation
 
-Run the file `/setup/install_anaconda_environments.py` in a terminal, which will install an Anaconda virtual environment named `calipy`, and install all the necessary packages to allow you to use the software. 
+Run the file `/setup/install_anaconda_environments.py` in a terminal, which will install an Anaconda virtual environment named `calipy`, and install all the necessary packages to allow you to use the software.
 
 After that, activate the environment and point `python` to `/src/calipy/_run.py`.
-    
+
 The file `/src/calipy/general_configs.py` contains a list of parameters, which are exposed to the user for easy default setting.
-
-## Dependencies
-
-pyqtgraph `0.11.0.dev0` included in this repo.
-
-`tifffile.py`, version `2019.03.18`, which is part of the library [scikit-image](https://github.com/scikit-image/scikit-image/blob/master/skimage/external/tifffile/tifffile.py) is also part of the repo.
-
