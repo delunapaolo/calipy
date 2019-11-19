@@ -56,6 +56,7 @@ if __name__ == '__main__':
     # Check that files with concatenated data exist
     filename_frame_first = os.path.join(output_folder, 'stack_frame_first.dat')
     filename_time_first = os.path.join(output_folder, 'stack_time_first.dat')
+
     if not os.path.exists(filename_frame_first) or not os.path.exists(filename_time_first) or overwrite_frame_first or overwrite_time_first:
         parameters_filename = prepare_data_for_GUI(tiff_folder, output_folder, overwrite_frame_first=overwrite_frame_first, overwrite_time_first=overwrite_time_first)
     else:
@@ -64,10 +65,6 @@ if __name__ == '__main__':
 
     # Load parameters from file stored on disk
     PARAMETERS = json.load(open(parameters_filename, 'r'))
-
-    # Make sure these fields are numpy arrays
-    PARAMETERS['sessions_last_frame'] = np.array([PARAMETERS['sessions_last_frame']], dtype=np.int64)
-    PARAMETERS['frames_idx'] = np.vstack(PARAMETERS['frames_idx']).astype(np.int64)
 
     # Launch GUI
     GUI = CalIpy(PARAMETERS)

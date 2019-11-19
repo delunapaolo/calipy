@@ -44,6 +44,11 @@ class CalIpy(object):
         # Make numpy ignore RuntimeWarnings
         warnings.simplefilter('ignore', category=RuntimeWarning)
 
+        # Make sure that some inputs have the correct data type and shape
+        PARAMETERS['condition_names'] = np.array(PARAMETERS['condition_names'])
+        PARAMETERS['sessions_last_frame'] = np.array([PARAMETERS['sessions_last_frame']], dtype=np.int64).ravel()
+        PARAMETERS['frames_idx'] = np.vstack(PARAMETERS['frames_idx']).astype(np.int64)
+
         # Store user inputs
         self.PARAMETERS = PARAMETERS
         self.app = QtApp
@@ -140,8 +145,9 @@ class CalIpy(object):
         self.TRANSFORMATION_MATRICES = pd.DataFrame(columns=['scale','rotation','translation'])
         # Initialize lookup table to find where info of each condition is stored in the table
         self.TRANSFORMATION_IDX = np.array([])
-        initialize_field(self, 'TRANSFORMATION_IDX', 'array', initial_value='list', shape=(self.n_conditions, 2))
+        initialize_field(self, 'TRANSFORMATION_IDX', 'array', initial_value='list', shape=(self.n_conditions, 3))
         self.TRANSFORMATION_IDX[:, 0] = np.arange(self.n_conditions, dtype=int)
+        self.TRANSFORMATION_IDX[:, 2] = self.PARAMETERS['condition_names']
         # Initialize lookup table of pixels in which each value is stored
         pixel_list = np.arange(self.PARAMETERS['n_pixels'], dtype=int)
         pixel_list = pixel_list.reshape(self.PARAMETERS['frame_height'], self.PARAMETERS['frame_width']).transpose().ravel()
@@ -311,7 +317,7 @@ class CalIpy(object):
         # Add boundaries of each session
         self.frame_image_view.timeLine.setZValue(1)
         for ii in range(self.PARAMETERS['sessions_last_frame'].shape[0] - 1):  # -1 because we ignore the last idx
-            pos = self.PARAMETERS['sessions_last_frame'][ii] / GUI_default['frame_rate']
+            pos = self.PARAMETERS['sessions_last_frame'][ii]
             l = pg.InfiniteLine(pos=pos, angle=90, pen=pg.mkPen(color=(77, 77, 77)))
             l.setZValue(1)
             self.frame_image_view.ui.roiPlot.addItem(l)
@@ -350,7 +356,6 @@ class CalIpy(object):
         self.trace_viewbox.setLimits(xMin=self.time_range[0], xMax=self.time_range[1])
         self.trace_viewbox.setMouseEnabled(x=True, y=False)
         self.trace_viewbox.addItem(self.trace_time_mark)
-
         # Add boundaries of each session
         for ii in range(self.PARAMETERS['sessions_last_frame'].shape[0] - 1):  # -1 because we ignore the last idx
             pos = self.PARAMETERS['sessions_last_frame'][ii] / GUI_default['frame_rate']
@@ -682,6 +687,19 @@ class CalIpy(object):
             else:
                 v = list([v])
             self.TRANSFORMATION_IDX[idx, 1] = v
+	    # Check whether to add new empty arrays for sessions that were added since
+        # the last segmentation
+        all_condition_idx = np.arange(self.PARAMETERS['condition_names'].shape[0])
+        has_condition_idx = np.where(np.isin(self.PARAMETERS['condition_names'], self.TRANSFORMATION_IDX[:, 2]))[0]
+        if not np.array_equal(all_condition_idx, has_condition_idx):
+            # Make empty arrays
+            TRANSFORMATION_IDX = np.empty((all_condition_idx.shape[0], 3), dtype=object)
+            TRANSFORMATION_IDX[:, 0] = all_condition_idx
+            TRANSFORMATION_IDX[:, 1] = [list() for _ in range(all_condition_idx.shape[0])]
+            TRANSFORMATION_IDX[:, 2] = self.PARAMETERS['condition_names']
+            # Add previous transformations
+            TRANSFORMATION_IDX[has_condition_idx, :] = self.TRANSFORMATION_IDX.copy()
+            self.TRANSFORMATION_IDX = TRANSFORMATION_IDX.copy()
         # Reset index to match table index
         all_transformations, all_transformations_idx = np.unique(self.TRANSFORMATION_IDX[:, 1], return_inverse=True)
         all_transformations = np.hstack(all_transformations).astype(int)
