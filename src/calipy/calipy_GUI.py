@@ -248,7 +248,7 @@ class CalIpy(object):
         table_layout.addWidget(self.table_conditions)
 
         # Make layout on the top to see fields of view
-        top_layout = QtWidgets.QHBoxLayout()
+        top_layout = make_QSplitter('hor')
         top_left_layout = QtWidgets.QVBoxLayout()
         top_left_layout_bottom = QtWidgets.QHBoxLayout()
         # Make ImageItem for average image
@@ -283,8 +283,9 @@ class CalIpy(object):
         hbox.addWidget(self.slider)
         top_left_layout.addLayout(hbox)
         top_left_layout.addLayout(top_left_layout_bottom)
-        top_layout.addLayout(top_left_layout)
-        top_layout.setStretch(0, 1)
+        w = QtWidgets.QWidget()
+        w.setLayout(top_left_layout)
+        top_layout.addWidget(w)
         # Draw crosshair and turn it off
         self.crosshair.append(pg.InfiniteLine(angle=90, movable=False))
         self.crosshair.append(pg.InfiniteLine(angle=0, movable=False))
@@ -336,7 +337,6 @@ class CalIpy(object):
         [self.FOV_borders[1][ii].setZValue(1000) for ii in range(4)]
         # Add plot to layout
         top_layout.addWidget(self.frame_image_view)
-        top_layout.setStretch(1, 1)
 
         # Make layout on the bottom to inspect ROIs and traces
         bottom_layout = make_QSplitter('hor')
@@ -367,14 +367,14 @@ class CalIpy(object):
         bottom_layout.setStretchFactor(1, 3)
 
         # Make final layout
-        graph_layout = QtWidgets.QVBoxLayout()
-        graph_layout.addLayout(top_layout)
+        graph_layout = make_QSplitter('ver')
+        graph_layout.addWidget(top_layout)
         graph_layout.addWidget(bottom_layout)
-        graph_layout.setStretch(0, 4)
-        graph_layout.setStretch(1, 1)
+        graph_layout.setStretchFactor(0, 4)
+        graph_layout.setStretchFactor(1, 1)
         layout = QtWidgets.QHBoxLayout()
         layout.addLayout(table_layout)
-        layout.addLayout(graph_layout)
+        layout.addWidget(graph_layout)
         # Put layout in the center
         qFrame = QtWidgets.QWidget()
         self.window.setCentralWidget(qFrame)
