@@ -15,7 +15,7 @@ default['frame_rate'] = 30
 default['correlation_time_smoothing_window'] = 1
 
 # GUI options
-default['colormap_index'] = 1
+default['colormap_index'] = 1  # 0 = black on white, 1 = white on black
 default['all_projection_types'] = ['max', 'mean', 'median', 'standard deviation']
 default['projection_type'] = 'max'
 default['average_type'] = 'correlation'
