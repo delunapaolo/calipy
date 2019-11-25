@@ -3,7 +3,6 @@ import sys
 import os
 from glob import glob
 import json
-import numpy as np
 from PyQt5.QtWidgets import QFileDialog
 
 # Local repository
