@@ -264,6 +264,7 @@ class CalIpy(object):
         self.average_histogram = pg.HistogramLUTWidget(image=self.average_image_view, rgbHistogram=False, levelMode='mono')
         self.average_histogram.item.gradient.allowAdd = False
         self.average_histogram.item.vb.setMenuEnabled(False)
+        self.average_histogram.item.vb.setMouseEnabled(x=False, y=False)
         # Delete ticks from histogram
         [ii.setStyle(tickLength=0, showValues=False) for ii in self.average_histogram.items() if isinstance(ii, pg.AxisItem)]
         top_left_layout_bottom.addWidget(self.average_histogram)
@@ -473,6 +474,7 @@ class CalIpy(object):
         # Reset range everywhere
         self.callback_reset_zoom(where='all')
         self.callback_link_histograms(False)
+        self.callback_toggle_colormap(force=self.current_colormap)
         # Bring to front
         self.window.raise_()
         log('GUI is ready')
@@ -624,7 +626,7 @@ class CalIpy(object):
             return
         # Check that file exists
         if not os.path.exists(self.PARAMETERS['filename_ROIs']):
-            log('File \'%s\' does not extist' % self.PARAMETERS['filename_ROIs'])
+            log('File \'%s\' does not exist' % self.PARAMETERS['filename_ROIs'])
             return
         # Count ROIs
         n_ROIs = self.ROI_TABLE.shape[0]
@@ -994,15 +996,18 @@ class CalIpy(object):
         elif self.current_projection_type == 'standard deviation':
             projection = np.nanstd(frames, axis=0)
 
-        # TODO: If correlation map is currently visualized, use red-blue colormap
-        # if self.current_average_type == 'corr':
-        #     pos, rgba_colors = zip(*cmapToColormap(mpl_colormaps.RdBu_r))
-        #     colormap = pg.ColorMap(pos, rgba_colors)
-        #     # Top left plot
-        #     self.average_histogram.item.gradient.setColorMap(colormap)
-        #
-        # else:
-        #     self.callback_toggle_colormap(force=self.current_colormap)
+        if self.current_average_type == 'correlation':
+            pos, rgba_colors = zip(*cmapToColormap(mpl_colormaps.RdBu_r))
+            colormap = pg.ColorMap(pos, rgba_colors)
+            self.average_histogram.item.gradient.setColorMap(colormap)
+            self.average_histogram.item.region.setBounds([-1, 1])
+            self.average_histogram.item.setHistogramRange(-1, 1)
+            self.average_histogram.item.vb.setRange(yRange=[-1, 1], disableAutoRange=True)
+        else:
+            self.callback_toggle_colormap(force=self.current_colormap)
+            self.average_histogram.item.region.setBounds([None, None])
+            self.average_histogram.vb.enableAutoRange(self.average_histogram.vb.YAxis, True)
+            self.average_histogram.item.vb.enableAutoRange(y=True)
 
         if return_image:
             # Apply levels
@@ -1044,7 +1049,18 @@ class CalIpy(object):
             timeline_pen = (255, 255, 0, 200)
             border_pen = (255, 255, 255)
         # Top left plot
-        self.average_histogram.item.gradient.setColorMap(self.colormap[self.current_colormap])
+        if self.current_average_type == 'correlation':
+            pos, rgba_colors = zip(*cmapToColormap(mpl_colormaps.RdBu_r))
+            colormap = pg.ColorMap(pos, rgba_colors)
+            self.average_histogram.item.gradient.setColorMap(colormap)
+            self.average_histogram.item.region.setBounds([-1, 1])
+            self.average_histogram.item.setHistogramRange(-1, 1)
+            self.average_histogram.item.vb.setRange(yRange=[-1, 1], disableAutoRange=True)
+        else:
+            self.average_histogram.item.gradient.setColorMap(self.colormap[self.current_colormap])
+            self.average_histogram.item.region.setBounds([None, None])
+            self.average_histogram.vb.enableAutoRange(self.average_histogram.vb.YAxis, True)
+            self.average_histogram.item.vb.enableAutoRange(y=True)
         self.average_image_viewbox.setBackgroundColor(background_color)
         self.image_views_title[0].setColor(foreground_color)
         self.average_histogram.setBackground(background_color)
@@ -1763,6 +1779,9 @@ class CalIpy(object):
 
 
     def make_ROI_from_point(self, xy_point):
+        # Initialize local variables
+        image_hull = None
+
         # Round points
         xy_coords = np.round(np.array(xy_point)).astype(int).ravel()
         # Get currently shown image
@@ -1776,14 +1795,32 @@ class CalIpy(object):
         radius = int(np.ceil(GUI_default['max_n_diameter'] / 2))
         sobel_mask = np.array((x - xy_coords[1]) ** 2 + (y - xy_coords[0]) ** 2 < radius ** 2)
         image_sobel = filters.sobel(image, sobel_mask)
-        image_seg = flood(image_sobel, (xy_coords[1], xy_coords[0]), tolerance=self.flood_tolerance)
-        # Use convex hull approximation to smooth contour
-        image_hull = convex_hull_image(image_seg).astype(np.uint8)
-        # If the ROI occupies more than a certain area, it means that the tolerance
-        # is too low. In that case, log it and return an empty list
-        if image_hull.sum() / sobel_mask.astype(np.uint8).sum() * 100 > GUI_default['max_area_percent']:
-            log('Tolerance is too low. Either try another pixel, increase the contrast or increase the tolerance')
+
+        # Check how many pixels get marked and iteratively lower the tolerance
+        tolerance_value = self.flood_tolerance
+        did_succeed = False
+        while tolerance_value >= 0:
+            image_seg = flood(image_sobel, (xy_coords[1], xy_coords[0]), tolerance=tolerance_value)
+            # Use convex hull approximation to smooth contour
+            image_hull = convex_hull_image(image_seg).astype(np.uint8)
+            image_hull[~sobel_mask] = 0
+            # If the ROI occupies more than a certain area, it means that the tolerance
+            # is too high. In that case, lower it
+            if image_hull.sum() / sobel_mask.astype(np.uint8).sum() * 100 > GUI_default['max_area_percent']:
+                tolerance_value = tolerance_value - 1
+            else:
+                did_succeed = True
+                break
+        # Return if did not succeed
+        if not did_succeed:
+            log('Cannot identify region around the selected reference pixel. Either try another pixel, increase the contrast or increase the tolerance')
             return list()
+
+        # Align value of GUI slider to whatever we have actually used for this ROI
+        else:
+            self.slider_update_GUI = False
+            self.flood_tolerance = tolerance_value
+            self.slider_update_GUI = True
 
         # Detect contours in the mask
         points = cv2.findContours(image_hull, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)[1]
@@ -2000,7 +2037,8 @@ class CalIpy(object):
             if np.all(bad_pixels):
                 continue
             # Temporarily mark bad pixels with -1
-            new_pixel[bad_pixels] = -1
+            if isinstance(new_pixel, np.ndarray):
+                new_pixel[bad_pixels] = -1
             # Convert to integer
             new_pixel = new_pixel.astype(int)
             # Unfold pixel value in time
